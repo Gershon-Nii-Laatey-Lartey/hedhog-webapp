@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
-type Tab = "mining" | "tasks" | "frens" | "wallet" | "upgrades";
+type Tab = "mining" | "tasks" | "frens" | "wallet" | "upgrades" | "leaderboard";
 
 interface CoinParticle {
   id: number;
@@ -21,7 +21,7 @@ export default function Home() {
   const [miningRate, setMiningRate] = useState(10); // Loon per hour
   const [energy, setEnergy] = useState(1000);
   const [maxEnergy] = useState(1000);
-  const [lastClaim, setLastClaim] = useState<number>(Date.now());
+  const [lastClaim, setLastClaim] = useState<number>(0);
   const [streak, setStreak] = useState(0);
   const [lastDailyClaim, setLastDailyClaim] = useState<string | null>(null);
   const [referralCount, setReferralCount] = useState(0);
@@ -30,7 +30,15 @@ export default function Home() {
   const [particles, setParticles] = useState<CoinParticle[]>([]);
   const [mounted, setMounted] = useState(false);
   const [referrals, setReferrals] = useState<any[]>([]);
-  const [totalMined, setTotalMined] = useState(0);
+   const [totalMined, setTotalMined] = useState(0);
+   const [leaderboardUsers, setLeaderboardUsers] = useState<any[]>([]);
+   const [lbType, setLbType] = useState<"coin" | "referral">("coin");
+   const [userRank, setUserRank] = useState<number | null>(null);
+  
+  // Refs for interval to avoid stale closures
+  const lastClaimRef = useRef<number>(0);
+  const miningRateRef = useRef<number>(10);
+  const energyRef = useRef<number>(1000);
 
   // Sync coins periodically or on specific actions
   const syncCoins = async (newAmount: number) => {
@@ -51,7 +59,11 @@ export default function Home() {
     e.preventDefault();
     e.stopPropagation();
     
-    setEnergy(prev => Math.max(0, prev - 1));
+    setEnergy(prev => {
+      const next = Math.max(0, prev - 1);
+      energyRef.current = next;
+      return next;
+    });
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -83,8 +95,8 @@ export default function Home() {
 
   const calculateClaimable = () => {
     const now = Date.now();
-    const secondsSince = Math.max(0, (now - lastClaim) / 1000);
-    return (secondsSince * (miningRate / 3600));
+    const secondsSince = Math.max(0, (now - lastClaimRef.current) / 1000);
+    return (secondsSince * (miningRateRef.current / 3600));
   };
 
   const handleClaim = async () => {
@@ -114,7 +126,9 @@ export default function Home() {
       setCoins(newTotal);
       setTotalMined(newTotalMined);
       setClaimProgress(0);
-      setLastClaim(Date.now());
+      const now = Date.now();
+      setLastClaim(now);
+      lastClaimRef.current = now;
     } catch (e) {
       console.error("Claim error:", e);
     } finally {
@@ -139,6 +153,7 @@ export default function Home() {
         
       setCoins(newTotal);
       setMiningRate(newRate);
+      miningRateRef.current = newRate;
       
       // Visual & Haptic Feedback
       if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
@@ -209,6 +224,36 @@ export default function Home() {
     } catch (e) { console.error(e); }
   };
 
+  const fetchLeaderboard = async (type: "coin" | "referral") => {
+    try {
+      if (type === "coin") {
+        const { data } = await supabase
+          .from('users')
+          .select('id, username, first_name, coins, mining_rate, photo_url')
+          .order('coins', { ascending: false })
+          .limit(50);
+        if (data) setLeaderboardUsers(data);
+        
+        // Find current user rank (approximate)
+        const { count } = await supabase
+          .from('users')
+          .select('*', { count: 'exact', head: true })
+          .gt('coins', coins);
+        if (count !== null) setUserRank(count + 1);
+      } else {
+        const { data, error } = await supabase.rpc('get_top_referrers', { limit_num: 50 });
+        if (data) {
+          // Map referral_count to a field we can display
+          setLeaderboardUsers(data);
+        } else {
+          console.error("RPC Error:", error);
+        }
+      }
+    } catch (e) {
+      console.error("LB error:", e);
+    }
+  };
+
   const handleReferralCopy = () => {
     const link = `https://t.me/Hedhog_airdrop_bot?start=${userId}`;
     navigator.clipboard.writeText(link);
@@ -245,6 +290,7 @@ export default function Home() {
             id: uid, 
             username: tgUser.username, 
             first_name: tgUser.first_name,
+            photo_url: tgUser.photo_url,
             last_active: new Date().toISOString()
           }, { onConflict: 'id' })
           .select()
@@ -252,12 +298,12 @@ export default function Home() {
 
         if (data) {
           setCoins(data.coins || 0);
-          setMiningRate(data.mining_rate || 10);
-          setStreak(data.streak || 0);
-          setLastDailyClaim(data.last_daily_claim);
-          
-          const claimTime = data.last_claim ? new Date(data.last_claim).getTime() : Date.now();
+           const claimTime = data.last_claim ? new Date(data.last_claim).getTime() : Date.now();
           setLastClaim(claimTime);
+          lastClaimRef.current = claimTime;
+          
+          setMiningRate(data.mining_rate || 10);
+          miningRateRef.current = data.mining_rate || 10;
           
           // 3. Fetch Real Referral Count
           const { count: refCount } = await supabase
@@ -277,7 +323,7 @@ export default function Home() {
           
           if (refData) setReferrals(refData);
 
-          // 5. Fetch Completed Tasks
+           // 5. Fetch Completed Tasks
           const { data: taskData } = await supabase
             .from('user_tasks')
             .select('task_id')
@@ -287,6 +333,9 @@ export default function Home() {
 
           // Set other stats
           setTotalMined(data.total_mined || data.coins || 0);
+
+          // 6. Init Leaderboard
+          fetchLeaderboard("coin");
         }
       } catch (err) {
         console.error("Auth/Fetch error:", err);
@@ -297,16 +346,25 @@ export default function Home() {
 
     initApp();
     
+    // Set initial lastClaim to now to prevent massive jumps before initApp finishes
+    const now = Date.now();
+    setLastClaim(prev => prev === 0 ? now : prev);
+    lastClaimRef.current = lastClaimRef.current === 0 ? now : lastClaimRef.current;
+    
     // Auto-earn and Energy Refill loop
     const earnInterval = setInterval(() => {
-      // 1. Refill Energy (Increased frequency requires lower refill rate per tick)
-      setEnergy(prev => Math.min(maxEnergy, prev + 0.3));
+      // 1. Refill Energy 
+      setEnergy(prev => {
+        const next = Math.min(maxEnergy, prev + 0.3);
+        energyRef.current = next;
+        return next;
+      });
       
       // 2. Tick Pending Loon in Real-time
       setPendingLoon(calculateClaimable());
       
       // 3. We use 'claimProgress' to represent Energy % for the UI bar
-      setClaimProgress(p => (energy / maxEnergy) * 100);
+      setClaimProgress((energyRef.current / maxEnergy) * 100);
     }, 200);
 
     document.body.style.overflow = "hidden";
@@ -411,7 +469,7 @@ export default function Home() {
             <span className="text-[10px] font-black uppercase text-zinc-300">Upgrade</span>
           </button>
           <button 
-            onPointerDown={(e) => { e.stopPropagation(); }}
+            onPointerDown={(e) => { e.stopPropagation(); setActiveTab("leaderboard"); }}
             className="flex-1 glass-card flex flex-col items-center justify-center gap-1.5 py-3 !rounded-2xl border-white/10 hover:bg-white/5 transition-colors active:scale-95 touch-manipulation"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A3FF12" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55.47.98.97 1.21C11.47 18.44 12 19 12 19s.53-.56 1.03-.79c.5-.23.97-.66.97-1.21v-2.34c0-.52.27-1 .73-1.26a3.57 3.57 0 0 0 1.27-5.4M8 6h8"/></svg>
@@ -428,24 +486,18 @@ export default function Home() {
       </div>
 
       {/* Main Claim Progress */}
-      <div className="px-4 space-y-3">
-        <div className="flex justify-between items-end px-2">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5 mb-1 bg-[#A3FF12]/5 px-2 py-0.5 rounded-full border border-[#A3FF12]/10 w-fit">
+        <div className="px-4 space-y-3">
+          <div className="flex items-center justify-center">
+            <div className="flex items-center gap-1.5 bg-[#A3FF12]/5 px-3 py-1 rounded-full border border-[#A3FF12]/10 w-fit">
                <div className="w-1.5 h-1.5 bg-[#A3FF12] rounded-full animate-pulse shadow-[0_0_5px_#A3FF12]"></div>
                <span className="text-[10px] font-black text-[#A3FF12] uppercase tracking-wider">+{(miningRate / 3600).toFixed(4)} $LOON / SEC</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-zinc-500 font-bold italic">Progress</span>
-            </div>
           </div>
-          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">{pendingLoon.toFixed(3)} / 10.000</span>
-        </div>
-        
-        <div className="flex justify-between items-end mb-1">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Mining Limit Energy</p>
-          <p className="text-[10px] font-black text-white">{Math.floor(energy)} / {maxEnergy}</p>
-        </div>
+          
+          <div className="flex justify-between items-end mb-1 px-1">
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Mining Limit Energy</p>
+            <p className="text-[10px] font-black text-white">{Math.floor(energy)} / {maxEnergy}</p>
+          </div>
         
         <div className="progress-bar-container">
           <div className="progress-bar-fill" style={{ width: `${(energy/maxEnergy) * 100}%` }}></div>
@@ -609,9 +661,9 @@ export default function Home() {
         <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest px-8 leading-relaxed opacity-60">Refer friends and earn 10% of their earnings forever!</p>
       </div>
 
-      <div className="px-4 mb-8">
-        <div className="glass-card !rounded-2xl border-white/10 bg-zinc-950/50 p-6">
-           <div className="flex justify-between items-center mb-8 px-2">
+      <div className="px-4 mb-6">
+        <div className="glass-card !rounded-2xl border-white/10 bg-zinc-950/50 p-4">
+           <div className="flex justify-between items-center mb-6 px-2">
               <div className="flex flex-col">
                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total My Frens</p>
                  <p className="text-2xl font-black text-white">{referralCount}</p>
@@ -628,14 +680,14 @@ export default function Home() {
                 <input 
                   readOnly 
                   value={`https://t.me/Hedhog_airdrop_bot?start=${userId}`}
-                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-zinc-300 flex-1 outline-none font-mono"
+                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-[10px] text-zinc-300 flex-1 outline-none font-mono"
                 />
               </div>
            </div>
 
            <button 
              onClick={handleReferralCopy} 
-             className="w-full bg-[#A3FF12] py-4 rounded-2xl text-black text-xs font-black uppercase tracking-widest shadow-[0_10px_30px_rgba(163,255,18,0.2)] hover:scale-[1.01] active:scale-95 transition-all glow-green"
+             className="w-full bg-[#A3FF12] py-3.5 rounded-2xl text-black text-xs font-black uppercase tracking-widest shadow-[0_10px_30px_rgba(163,255,18,0.2)] hover:scale-[1.01] active:scale-95 transition-all glow-green"
            >
              Copy Link & Invite
            </button>
@@ -671,6 +723,111 @@ export default function Home() {
             )}
          </div>
       </div>
+    </div>
+  );
+
+   const renderLeaderboard = () => (
+     <div className="page-container animate-in fade-in slide-in-from-bottom-4 duration-500 bg-black/40 min-h-screen">
+       <div className="pt-8 px-6 text-center relative">
+          <button onClick={() => setActiveTab("mining")} className="absolute top-8 left-6 flex items-center gap-1 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            Back
+          </button>
+          
+          <div className="relative inline-block mb-4">
+            <div className="w-24 h-24 mx-auto bg-gradient-to-b from-purple-500/20 to-transparent rounded-full flex items-center justify-center border border-purple-500/10">
+               <span className="text-6xl drop-shadow-2xl">🏅</span>
+            </div>
+            <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-yellow-500 rounded-full border-4 border-black flex items-center justify-center font-black text-xs text-black shadow-lg">1</div>
+          </div>
+          
+          <h2 className="text-4xl font-black mb-1 tracking-tight text-white italic">LeaderBoard</h2>
+          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest px-12 leading-relaxed opacity-80 mb-8">Earn Coins Daily For Login Keep Your Streak To Earn More!</p>
+
+          <div className="glass-card !p-5 !rounded-3xl border-purple-500/20 bg-purple-500/5 mb-8 flex justify-between items-center transition-all hover:bg-purple-500/10 active:scale-95 cursor-pointer">
+             <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-gradient-to-br from-zinc-700 to-zinc-900 rounded-full border border-white/10 flex items-center justify-center text-xl overflow-hidden">
+                   {userName[0]}
+                </div>
+                <div className="text-left">
+                   <p className="text-sm font-black text-white tracking-tight">{userName}</p>
+                   <div className="flex items-center gap-1">
+                      <div className="w-3.5 h-3.5 bg-yellow-500 rounded-full flex items-center justify-center text-[8px]">🪙</div>
+                      <span className="text-xs font-black text-zinc-400">{coins.toLocaleString()}</span>
+                   </div>
+                </div>
+             </div>
+             <div className="flex flex-col items-end">
+                <div className="flex items-center gap-1.5 bg-white/5 py-1 px-3 rounded-full border border-white/5">
+                   <span className="text-lg">{userRank && userRank <= 3 ? ["🥇", "🥈", "🥉"][userRank-1] : "🏅"}</span>
+                   <span className="text-xl font-black text-zinc-200">{userRank ? (userRank >= 1000 ? (userRank/1000).toFixed(1) + 'k' : userRank) : '...'}</span>
+                   <span className="text-[9px] font-black text-zinc-500 uppercase ml-1">/ Your Rank</span>
+                </div>
+             </div>
+          </div>
+
+          <div className="flex gap-2 p-1.5 bg-zinc-900/40 rounded-2xl border border-white/5 mb-10 overflow-hidden">
+             <button 
+                onClick={() => { setLbType("coin"); fetchLeaderboard("coin"); }}
+                className={`flex-1 py-3.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl ${lbType === "coin" ? 'bg-[#A3FF12] text-black shadow-[0_0_20px_rgba(163,255,18,0.2)]' : 'text-zinc-500 hover:text-white'}`}
+             >
+                By Coin
+             </button>
+             <button 
+                onClick={() => { setLbType("referral"); fetchLeaderboard("referral"); }}
+                className={`flex-1 py-3.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-xl ${lbType === "referral" ? 'bg-[#A3FF12] text-black shadow-[0_0_20px_rgba(163,255,18,0.2)]' : 'text-zinc-500 hover:text-white'}`}
+             >
+                By Referrals
+             </button>
+          </div>
+
+          <div className="text-left mb-6">
+             <h3 className="text-sm font-black text-white uppercase tracking-[0.2em] opacity-80 pl-2">Top User</h3>
+          </div>
+
+          <div className="space-y-3 pb-32">
+             {leaderboardUsers.map((user, i) => {
+                const isTop3 = i < 3;
+                const medals = ["🥇", "🥈", "🥉"];
+                return (
+                  <div key={user.id} className="glass-card flex justify-between items-center py-4 border-white/5 rounded-2xl px-5 bg-zinc-900/30 group hover:bg-zinc-900/50 transition-colors">
+                     <div className="flex items-center gap-4">
+                        <div className="relative">
+                           <div className="w-12 h-12 bg-gradient-to-br from-zinc-800 to-black rounded-full border border-white/10 overflow-hidden shadow-inner flex items-center justify-center">
+                              {user.photo_url ? (
+                                <img src={user.photo_url} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="font-black text-[14px] text-zinc-400">{(user.username || user.first_name || 'U')[0].toUpperCase()}</span>
+                              )}
+                           </div>
+                           {isTop3 && (
+                             <div className="absolute -top-1.5 -left-1.5 text-lg drop-shadow-sm">{medals[i]}</div>
+                           )}
+                        </div>
+                        <div className="text-left">
+                           <p className="text-sm font-black text-white tracking-tight">{user.username || user.first_name || `Hedge_${user.id.slice(-4)}`}</p>
+                           <div className="flex items-center gap-1.5">
+                              <div className="w-3.5 h-3.5 bg-yellow-500 rounded-full flex items-center justify-center text-[8px]">🪙</div>
+                              <span className="text-xs font-black text-zinc-200">{user.coins.toLocaleString()}</span>
+                           </div>
+                        </div>
+                     </div>
+                     <div className="flex items-center gap-4">
+                        <div className="text-right flex flex-col items-end">
+                           <div className="flex items-center gap-1 bg-white/5 px-2.5 py-1 rounded-lg border border-white/5">
+                             <span className="text-[11px] font-black text-white italic">{lbType === 'coin' ? (user.mining_rate || 0).toFixed(1) : (user.referral_count || 0)}</span>
+                             <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-tighter cursor-default">{lbType === 'coin' ? 'Coins / Sec' : 'Frens'}</span>
+                           </div>
+                        </div>
+                        <div className="w-8 text-right font-black text-xs text-zinc-600 group-hover:text-zinc-400 transition-colors">
+                           {isTop3 ? '' : i + 1}
+                        </div>
+                     </div>
+                  </div>
+                );
+             })}
+          </div>
+       </div>
     </div>
   );
 
@@ -769,6 +926,7 @@ export default function Home() {
         {activeTab === "tasks" && renderTasks()}
         {activeTab === "frens" && renderFrens()}
         {activeTab === "wallet" && renderWallet()}
+        {activeTab === "leaderboard" && renderLeaderboard()}
       </main>
 
 

@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${outfit.variable} antialiased selection:bg-yellow-500 selection:text-black`}>
         <Script 
           src="https://telegram.org/js/telegram-web-app.js" 

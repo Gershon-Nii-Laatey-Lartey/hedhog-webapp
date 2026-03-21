@@ -29,6 +29,8 @@ export default function Home() {
   const [pendingLoon, setPendingLoon] = useState(0);
   const [particles, setParticles] = useState<CoinParticle[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [referrals, setReferrals] = useState<any[]>([]);
+  const [totalMined, setTotalMined] = useState(0);
 
   // Sync coins periodically or on specific actions
   const syncCoins = async (newAmount: number) => {
@@ -60,6 +62,7 @@ export default function Home() {
     
     setCoins((prev: number) => {
       const next = prev + 1;
+      setTotalMined(t => t + 1);
       // Throttled sync or sync every 10 clicks could be better, but simple for now
       if (next % 10 === 0) syncCoins(next);
       return next;
@@ -96,17 +99,20 @@ export default function Home() {
     }
     
     const newTotal = coins + Math.floor(minedAmount);
+    const newTotalMined = totalMined + Math.floor(minedAmount);
     
     try {
       await supabase
         .from('users')
         .update({ 
           coins: newTotal, 
+          total_mined: newTotalMined,
           last_claim: new Date().toISOString() 
         })
         .eq('id', userId);
         
       setCoins(newTotal);
+      setTotalMined(newTotalMined);
       setClaimProgress(0);
       setLastClaim(Date.now());
     } catch (e) {
@@ -133,8 +139,19 @@ export default function Home() {
         
       setCoins(newTotal);
       setMiningRate(newRate);
+      
+      // Visual & Haptic Feedback
+      if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+        (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+        (window as any).Telegram.WebApp.showAlert(`🚀 Upgrade Successful! New Rate: ${newRate}/h`);
+      } else {
+        alert(`🚀 Upgrade Successful! New Rate: ${newRate}/h`);
+      }
     } catch (e) {
       console.error("Purchase error:", e);
+      if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+        (window as any).Telegram.WebApp.showAlert("❌ Purchase failed. Please try again.");
+      }
     }
   };
 
@@ -250,13 +267,26 @@ export default function Home() {
           
           if (refCount !== null) setReferralCount(refCount);
 
-          // 4. Fetch Completed Tasks
+          // 4. Fetch Real Referral Data
+          const { data: refData } = await supabase
+            .from('users')
+            .select('id, username, first_name, coins, level')
+            .eq('referer_id', uid)
+            .order('coins', { ascending: false })
+            .limit(10);
+          
+          if (refData) setReferrals(refData);
+
+          // 5. Fetch Completed Tasks
           const { data: taskData } = await supabase
             .from('user_tasks')
             .select('task_id')
             .eq('user_id', uid);
           
           if (taskData) setCompletedTasks(taskData.map(t => t.task_id));
+
+          // Set other stats
+          setTotalMined(data.total_mined || data.coins || 0);
         }
       } catch (err) {
         console.error("Auth/Fetch error:", err);
@@ -266,7 +296,6 @@ export default function Home() {
     };
 
     initApp();
-    setMounted(true);
     
     // Auto-earn and Energy Refill loop
     const earnInterval = setInterval(() => {
@@ -365,7 +394,7 @@ export default function Home() {
             </div>
           ))}
           <img 
-            src="/character.png?v=2" 
+            src="/character.png" 
             alt="Character" 
             className="w-full h-full object-contain pointer-events-none"
             loading="eager"
@@ -404,13 +433,13 @@ export default function Home() {
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 mb-1 bg-[#A3FF12]/5 px-2 py-0.5 rounded-full border border-[#A3FF12]/10 w-fit">
                <div className="w-1.5 h-1.5 bg-[#A3FF12] rounded-full animate-pulse shadow-[0_0_5px_#A3FF12]"></div>
-               <span className="text-[10px] font-black text-[#A3FF12] uppercase tracking-wider">+0.15 $LOON / SEC</span>
+               <span className="text-[10px] font-black text-[#A3FF12] uppercase tracking-wider">+{(miningRate / 3600).toFixed(4)} $LOON / SEC</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-xs text-zinc-500 font-bold italic">Progress</span>
             </div>
           </div>
-          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">6.791 / 10,000</span>
+          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tight">{pendingLoon.toFixed(3)} / 10.000</span>
         </div>
         
         <div className="flex justify-between items-end mb-1">
@@ -424,25 +453,25 @@ export default function Home() {
 
         <button 
           onClick={handleClaim}
-          disabled={pendingLoon <= 0}
+          disabled={pendingLoon < 0.01}
           className="btn-primary w-full py-3.5 text-base tracking-wide glow-green hover:brightness-110 active:scale-95 transition-all"
         >
-          {isClaiming ? 'Claiming...' : `Claim ${pendingLoon.toFixed(2)} $LOON`}
+          {isClaiming ? 'Claiming...' : `Claim ${Math.floor(pendingLoon)} $LOON`}
         </button>
       </div>
 
       {/* Stats Cards Section - Ensuring there's content to scroll/feel balanced */}
-      <div className="px-4 grid grid-cols-2 gap-3 pb-32">
+      <div className="px-4 grid grid-cols-2 gap-3 pb-8">
          <div className="glass-card !p-4 !rounded-3xl border-white/5 bg-zinc-950/30">
             <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total Mined</p>
-            <p className="text-sm font-black text-white">{coins.toLocaleString()}</p>
+            <p className="text-sm font-black text-white">{totalMined.toLocaleString()}</p>
          </div>
          <div className="glass-card !p-4 !rounded-3xl border-white/5 bg-zinc-950/30">
             <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total Referrals</p>
             <p className="text-sm font-black text-white">{referralCount}</p>
          </div>
       </div>
-      <div className="h-40 shrink-0" />
+      <div className="h-20 shrink-0" />
     </div>
   );
 
@@ -571,17 +600,17 @@ export default function Home() {
   );
 
   const renderFrens = () => (
-    <div className="page-container animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
-      <div className="pt-8 px-4 text-center mb-8">
-        <div className="w-24 h-24 bg-[#A3FF12]/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-[#A3FF12]/20 shadow-[0_0_50px_rgba(163,255,18,0.15)] glow-green">
-           <span className="text-5xl">🎁</span>
+    <div className="page-container animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+      <div className="pt-8 px-4 text-center mb-6">
+        <div className="w-20 h-20 bg-[#A3FF12]/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-[#A3FF12]/20 shadow-[0_0_50px_rgba(163,255,18,0.15)] glow-green">
+           <span className="text-4xl">🎁</span>
         </div>
-        <h2 className="text-3xl font-black mb-2 tracking-tight">Invite Frens</h2>
-        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest px-8 leading-relaxed opacity-60">Refer your friends and earn 10% of their earnings forever!</p>
+        <h2 className="text-3xl font-black mb-1 tracking-tight">Invite Frens</h2>
+        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest px-8 leading-relaxed opacity-60">Refer friends and earn 10% of their earnings forever!</p>
       </div>
 
-      <div className="px-4 mb-10">
-        <div className="glass-card !rounded-[2.5rem] border-white/10 bg-zinc-950/50 p-6">
+      <div className="px-4 mb-8">
+        <div className="glass-card !rounded-2xl border-white/10 bg-zinc-950/50 p-6">
            <div className="flex justify-between items-center mb-8 px-2">
               <div className="flex flex-col">
                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total My Frens</p>
@@ -592,11 +621,23 @@ export default function Home() {
                  <p className="text-xl font-black text-[#A3FF12]">{(referralCount * 25000).toLocaleString()}</p>
               </div>
            </div>
+           
+           <div className="mb-4">
+              <p className="text-[8px] text-zinc-500 uppercase font-black tracking-widest mb-2 ml-1">My Referral Link</p>
+              <div className="flex gap-2">
+                <input 
+                  readOnly 
+                  value={`https://t.me/Hedhog_airdrop_bot?start=${userId}`}
+                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-zinc-300 flex-1 outline-none font-mono"
+                />
+              </div>
+           </div>
+
            <button 
              onClick={handleReferralCopy} 
-             className="w-full bg-[#A3FF12] py-5 rounded-[1.5rem] text-black text-xs font-black uppercase tracking-widest shadow-[0_10px_30px_rgba(163,255,18,0.3)] hover:scale-[1.02] active:scale-95 transition-all glow-green"
+             className="w-full bg-[#A3FF12] py-4 rounded-2xl text-black text-xs font-black uppercase tracking-widest shadow-[0_10px_30px_rgba(163,255,18,0.2)] hover:scale-[1.01] active:scale-95 transition-all glow-green"
            >
-             Invite Frens
+             Copy Link & Invite
            </button>
         </div>
       </div>
@@ -607,23 +648,27 @@ export default function Home() {
         </div>
         
          <div className="space-y-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="glass-card flex justify-between items-center py-4 border-white/5 rounded-[1.75rem] px-5 bg-zinc-900/30">
+            {referrals.length > 0 ? referrals.map((ref, i) => (
+              <div key={ref.id} className="glass-card flex justify-between items-center py-4 border-white/5 rounded-2xl px-5 bg-zinc-900/30">
                  <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-zinc-800 rounded-full border border-white/10 overflow-hidden shadow-inner flex items-center justify-center">
-                       <span className="font-black text-[11px] text-zinc-400">U{i}</span>
+                       <span className="font-black text-[11px] text-zinc-400">{ref.username?.[0] || ref.first_name?.[0] || 'U'}</span>
                     </div>
                     <div>
-                       <p className="text-sm font-black text-white tracking-tight">Cooper_Hedge_{i}</p>
-                       <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Level {10 - i}</p>
+                       <p className="text-sm font-black text-white tracking-tight">{ref.username || ref.first_name || `User_${ref.id.slice(-4)}`}</p>
+                       <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Level {ref.level || 1}</p>
                     </div>
                  </div>
                  <div className="flex flex-col items-end">
-                    <span className="text-xs font-black text-white tracking-tight">{(1500).toLocaleString()}K</span>
-                    <span className="text-[9px] font-black text-[#A3FF12] uppercase tracking-tighter cursor-pointer hover:underline">Claim 150K</span>
+                    <span className="text-xs font-black text-white tracking-tight">{(ref.coins || 0).toLocaleString()}</span>
+                    <span className="text-[9px] font-black text-[#A3FF12] uppercase tracking-tighter">Active</span>
                  </div>
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-8 opacity-40">
+                <p className="text-xs font-bold uppercase tracking-widest">No Friends Yet</p>
+              </div>
+            )}
          </div>
       </div>
     </div>

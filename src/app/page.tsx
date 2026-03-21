@@ -68,12 +68,23 @@ export default function Home() {
     }, 1000);
   };
 
+  const calculateClaimable = () => {
+    const now = Date.now();
+    const secondsSince = Math.max(0, (now - lastClaim) / 1000);
+    return Math.floor(secondsSince * (miningRate / 3600));
+  };
+
   const handleClaim = async () => {
     if (isClaiming || !userId) return;
     setIsClaiming(true);
     
-    // Simulate claimable amount based on progress
-    const minedAmount = Math.floor(claimProgress * 10); 
+    // Calculate claimable amount base on time
+    const minedAmount = calculateClaimable(); 
+    if (minedAmount <= 0) {
+      setIsClaiming(false);
+      return;
+    }
+    
     const newTotal = coins + minedAmount;
     
     try {
@@ -336,7 +347,7 @@ export default function Home() {
         </div>
 
         <button 
-          onClick={handleClaimCoins}
+          onClick={handleClaim}
           disabled={calculateClaimable() <= 0}
           className="btn-primary w-full py-3.5 text-base tracking-wide glow-green hover:brightness-110 active:scale-95 transition-all"
         >
@@ -390,7 +401,7 @@ export default function Home() {
                 <p className="font-black text-[10px] text-white uppercase mb-1">{names[i % names.length]} M-{i+1}</p>
                 <p className="text-[9px] text-[#A3FF12] font-bold mb-4">+{boost.toFixed(2)} / Sec</p>
                 <button 
-                  onClick={() => handleBuyUpgrade(upgrade.id, upgrade.cost, upgrade.boost * 3600)} // Convert boost/sec to boost/hr
+                  onClick={() => handleBuyUpgrade(String(upgrade.id), upgrade.cost, upgrade.boost * 3600)} // Convert boost/sec to boost/hr
                   disabled={coins < upgrade.cost}
                   className={`w-full py-2 rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-wider transition-colors ${coins >= upgrade.cost ? 'bg-[#A3FF12] text-black' : 'bg-[#1A1A1A] text-zinc-400 cursor-not-allowed opacity-50'}`}
                 >

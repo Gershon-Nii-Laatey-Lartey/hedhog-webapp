@@ -17,6 +17,7 @@ export default function Home() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimProgress, setClaimProgress] = useState(65); // Just for demo
   const [userId, setUserId] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>("Collector");
   const [particles, setParticles] = useState<CoinParticle[]>([]);
   const [mounted, setMounted] = useState(false);
 
@@ -76,6 +77,7 @@ export default function Home() {
 
       const uid = String(tgUser.id);
       setUserId(uid);
+      setUserName(tgUser.first_name || "Collector");
 
       // 2. Upsert User in Supabase
       try {
@@ -105,17 +107,33 @@ export default function Home() {
     return () => { document.body.style.overflow = "auto"; };
   }, []);
 
+  const renderSkeleton = () => (
+    <div className="tma-container bg-zinc-950 p-6 space-y-8 animate-pulse">
+      <div className="flex justify-between items-center pt-4">
+        <div className="flex gap-3 items-center">
+          <div className="w-10 h-10 rounded-full bg-zinc-800" />
+          <div className="space-y-2">
+            <div className="h-2 w-16 bg-zinc-800 rounded" />
+            <div className="h-3 w-24 bg-zinc-800 rounded" />
+          </div>
+        </div>
+        <div className="h-8 w-24 bg-zinc-800 rounded-full" />
+      </div>
+      <div className="h-64 w-full bg-zinc-900/50 rounded-3xl" />
+      <div className="flex justify-center flex-col items-center space-y-4">
+        <div className="h-10 w-48 bg-zinc-800 rounded-2xl" />
+        <div className="h-4 w-32 bg-zinc-900 rounded" />
+      </div>
+    </div>
+  );
+
   const renderMining = () => (
     <div className="page-container-compact animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header Info */}
       <div className="flex justify-between items-center pt-6 px-4">
-        <div className="flex items-center gap-2">
-           <div className="w-10 h-10 glass-card !p-0 flex items-center justify-center !rounded-xl border-white/10 hover:bg-white/5 transition-colors cursor-pointer active:scale-95">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-           </div>
-           <div className="w-10 h-10 glass-card !p-0 flex items-center justify-center !rounded-xl border-white/10 hover:bg-white/5 transition-colors cursor-pointer active:scale-95">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-           </div>
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black uppercase text-[#A3FF12] tracking-tighter -mb-1">Collector</span>
+          <span className="text-sm font-black uppercase text-white drop-shadow-sm tracking-tight">{userName}</span>
         </div>
         
         <div className="flex flex-col items-end">

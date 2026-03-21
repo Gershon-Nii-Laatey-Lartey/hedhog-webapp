@@ -298,7 +298,10 @@ export default function Home() {
 
         if (data) {
           setCoins(data.coins || 0);
-           const claimTime = data.last_claim ? new Date(data.last_claim).getTime() : Date.now();
+          setStreak(data.streak || 0);
+          setLastDailyClaim(data.last_daily_claim);
+          
+          const claimTime = data.last_claim ? new Date(data.last_claim).getTime() : Date.now();
           setLastClaim(claimTime);
           lastClaimRef.current = claimTime;
           

@@ -18,6 +18,8 @@ export default function Home() {
   const [claimProgress, setClaimProgress] = useState(65); // Just for demo
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("Collector");
+  const [miningRate, setMiningRate] = useState(10); // Coins per hour (base)
+  const [lastClaim, setLastClaim] = useState<number>(Date.now());
   const [particles, setParticles] = useState<CoinParticle[]>([]);
   const [mounted, setMounted] = useState(false);
 
@@ -34,7 +36,10 @@ export default function Home() {
     }
   };
 
-  const handleTap = (e: React.PointerEvent) => {
+  const handleTap = (e: React.PointerEvent | React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -61,6 +66,73 @@ export default function Home() {
     setTimeout(() => {
       setParticles((prev: CoinParticle[]) => prev.filter(p => p.id !== id));
     }, 1000);
+  };
+
+  const handleClaim = async () => {
+    if (isClaiming || !userId) return;
+    setIsClaiming(true);
+    
+    // Simulate claimable amount based on progress
+    const minedAmount = Math.floor(claimProgress * 10); 
+    const newTotal = coins + minedAmount;
+    
+    try {
+      await supabase
+        .from('users')
+        .update({ 
+          coins: newTotal, 
+          last_claim: new Date().toISOString() 
+        })
+        .eq('id', userId);
+        
+      setCoins(newTotal);
+      setClaimProgress(0);
+      setLastClaim(Date.now());
+    } catch (e) {
+      console.error("Claim error:", e);
+    } finally {
+      setIsClaiming(false);
+    }
+  };
+
+  const handleBuyUpgrade = async (id: string, cost: number, rateBoost: number) => {
+    if (coins < cost || !userId) return;
+    
+    const newTotal = coins - cost;
+    const newRate = miningRate + rateBoost;
+    
+    try {
+      await supabase
+        .from('users')
+        .update({ 
+          coins: newTotal, 
+          mining_rate: newRate 
+        })
+        .eq('id', userId);
+        
+      setCoins(newTotal);
+      setMiningRate(newRate);
+    } catch (e) {
+      console.error("Purchase error:", e);
+    }
+  };
+
+  const handleDailyReward = async () => {
+    if (!userId) return;
+    const reward = 1000;
+    const newTotal = coins + reward;
+    
+    try {
+      await supabase.from('users').update({ coins: newTotal }).eq('id', userId);
+      setCoins(newTotal);
+      alert("🎁 Daily reward claimed: +1,000 $LOON!");
+    } catch (e) { console.error(e); }
+  };
+
+  const handleReferralCopy = () => {
+    const link = `https://t.me/Hedhog_airdrop_bot?start=${userId}`;
+    navigator.clipboard.writeText(link);
+    alert("🔗 Referral link copied!");
   };
 
   useEffect(() => {
@@ -94,6 +166,19 @@ export default function Home() {
 
         if (data) {
           setCoins(data.coins || 0);
+          setMiningRate(data.mining_rate || 10);
+          
+          const claimTime = data.last_claim ? new Date(data.last_claim).getTime() : Date.now();
+          setLastClaim(claimTime);
+          
+          // Calculate offline income
+          const now = Date.now();
+          const secondsOffline = Math.max(0, (now - claimTime) / 1000);
+          const earnedOffline = Math.floor(secondsOffline * (data.mining_rate || 10) / 3600);
+          
+          if (earnedOffline > 0) {
+            setClaimProgress(prev => Math.min(100, prev + (earnedOffline / 100))); // Just for visual feedback
+          }
         }
       } catch (err) {
         console.error("Auth/Fetch error:", err);
@@ -103,8 +188,21 @@ export default function Home() {
     };
 
     initApp();
+    setMounted(true);
+    
+    // Auto-earn loop while app is open
+    const earnInterval = setInterval(() => {
+      setClaimProgress(prev => {
+        const next = prev + 0.1; // Slow increase for demo
+        return next > 100 ? 100 : next;
+      });
+    }, 1000);
+
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = "auto"; };
+    return () => { 
+      clearInterval(earnInterval);
+      document.body.style.overflow = "auto"; 
+    };
   }, []);
 
   const renderSkeleton = () => (
@@ -170,7 +268,6 @@ export default function Home() {
         <div 
           className="w-80 h-80 relative mb-4 cursor-pointer active:scale-105 transition-transform duration-75 touch-none"
           onPointerDown={handleTap}
-          onClick={handleTap as any} /* Fallback */
         >
           {/* Floating Particles */}
           {particles.map(p => (
@@ -235,11 +332,15 @@ export default function Home() {
         </div>
         
         <div className="progress-bar-container">
-          <div className="progress-bar-fill w-[65%]"></div>
+          <div className="progress-bar-fill" style={{ width: `${claimProgress}%` }}></div>
         </div>
 
-        <button className="btn-primary w-full py-3.5 text-base tracking-wide glow-green hover:brightness-110 active:scale-95 transition-all">
-          Claim 6,795 $LOON
+        <button 
+          onClick={handleClaimCoins}
+          disabled={calculateClaimable() <= 0}
+          className="btn-primary w-full py-3.5 text-base tracking-wide glow-green hover:brightness-110 active:scale-95 transition-all"
+        >
+          Claim {calculateClaimable().toLocaleString()} $LOON
         </button>
       </div>
 
@@ -278,6 +379,8 @@ export default function Home() {
             const icons = ["📶", "💾", "💻", "⛓️‍💥", "🔌", "🖥️", "📡", "⚡", "🐧", "🚀"];
             const names = ["Router", "Memory", "Laptop", "GPU", "Power", "Server", "Satelite", "Voltage", "Linux Box", "Rocket"];
             
+            const upgrade = { id: i, cost: price, level: level, boost: boost }; // Define upgrade object
+
             return (
               <div key={i} className="glass-card flex flex-col items-center text-center !p-4 !rounded-3xl border-white/10 relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-2 opacity-20 text-[8px] font-black uppercase">Lv. {level}</div>
@@ -286,7 +389,11 @@ export default function Home() {
                 </div>
                 <p className="font-black text-[10px] text-white uppercase mb-1">{names[i % names.length]} M-{i+1}</p>
                 <p className="text-[9px] text-[#A3FF12] font-bold mb-4">+{boost.toFixed(2)} / Sec</p>
-                <button className={`w-full py-2 rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-wider transition-colors ${i % 3 === 0 ? 'bg-[#A3FF12] text-black' : 'bg-[#1A1A1A] text-zinc-400'}`}>
+                <button 
+                  onClick={() => handleBuyUpgrade(upgrade.id, upgrade.cost, upgrade.boost * 3600)} // Convert boost/sec to boost/hr
+                  disabled={coins < upgrade.cost}
+                  className={`w-full py-2 rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-wider transition-colors ${coins >= upgrade.cost ? 'bg-[#A3FF12] text-black' : 'bg-[#1A1A1A] text-zinc-400 cursor-not-allowed opacity-50'}`}
+                >
                   Upgrade • {price >= 1000 ? (price/1000).toFixed(1) + 'K' : price}
                 </button>
               </div>
@@ -314,8 +421,13 @@ export default function Home() {
              </div>
              <span className="text-xs font-black text-white">{amount.toLocaleString()}</span>
              <span className="text-[8px] font-bold text-zinc-600 uppercase mt-1">LOON</span>
-             {i === 2 && (
-               <div className="absolute inset-x-0 bottom-0 bg-[#A3FF12] py-1 text-[8px] font-black text-black uppercase tracking-tighter">Claim</div>
+             {i === 2 && ( // Assuming day 3 is claimable for demo
+               <button 
+                 onClick={handleDailyReward}
+                 className="absolute inset-x-0 bottom-0 bg-[#A3FF12] py-1 text-[8px] font-black text-black uppercase tracking-tighter"
+               >
+                 Claim
+               </button>
              )}
           </div>
         ))}
@@ -383,7 +495,12 @@ export default function Home() {
                  <p className="text-xl font-black text-[#A3FF12]">15,483,158</p>
               </div>
            </div>
-           <button className="btn-primary w-full py-4 text-sm glow-green">Invite Frens</button>
+           <button 
+             onClick={handleReferralCopy}
+             className="btn-primary w-full py-4 text-sm glow-green"
+           >
+             Invite Frens
+           </button>
         </div>
       </div>
 
@@ -423,7 +540,7 @@ export default function Home() {
          <div className="glass-card !rounded-3xl border-white/10 bg-zinc-950/50 p-6">
             <div className="flex flex-col items-center mb-6">
                <p className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mb-1">$LOON BALANCE</p>
-               <h3 className="text-4xl font-black text-white">153,490,751</h3>
+               <h3 className="text-4xl font-black text-white">{coins.toLocaleString()}</h3>
                <p className="text-[10px] font-black text-[#A3FF12] mt-1 select-none">≈ $1,248.50 USD</p>
             </div>
             <div className="flex gap-2">

@@ -224,9 +224,10 @@ export default function Home() {
     } catch (e) { console.error(e); }
   };
 
-  const fetchLeaderboard = async (type: "coin" | "referral") => {
+  const fetchLeaderboard = async (type: "coin" | "referral", currentCoins?: number, currentRef?: number) => {
     try {
       if (type === "coin") {
+        const c = currentCoins !== undefined ? currentCoins : coins;
         const { data } = await supabase
           .from('users')
           .select('id, username, first_name, coins, mining_rate, photo_url')
@@ -238,13 +239,16 @@ export default function Home() {
         const { count } = await supabase
           .from('users')
           .select('*', { count: 'exact', head: true })
-          .gt('coins', coins);
+          .gt('coins', c);
         if (count !== null) setUserRank(count + 1);
       } else {
         const { data, error } = await supabase.rpc('get_top_referrers', { limit_num: 50 });
         if (data) {
-          // Map referral_count to a field we can display
           setLeaderboardUsers(data);
+          
+          // Find current user rank (approximate) - Simplified for referral mode
+          const { count: refRankCount } = await supabase.rpc('get_user_referral_rank', { target_user_id: userId });
+          if (refRankCount !== null) setUserRank(refRankCount);
         } else {
           console.error("RPC Error:", error);
         }
@@ -337,8 +341,8 @@ export default function Home() {
           // Set other stats
           setTotalMined(data.total_mined || data.coins || 0);
 
-          // 6. Init Leaderboard
-          fetchLeaderboard("coin");
+          // 6. Init Leaderboard with current data to avoid state lag
+          fetchLeaderboard("coin", data.coins || 0);
         }
       } catch (err) {
         console.error("Auth/Fetch error:", err);
@@ -358,7 +362,7 @@ export default function Home() {
     const earnInterval = setInterval(() => {
       // 1. Refill Energy 
       setEnergy(prev => {
-        const next = Math.min(maxEnergy, prev + 0.3);
+        const next = Math.min(maxEnergy, prev + 0.02);
         energyRef.current = next;
         return next;
       });
@@ -934,7 +938,7 @@ export default function Home() {
 
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-4 left-6 right-6 max-w-[360px] mx-auto bg-[#1a1a1a]/95 backdrop-blur-3xl border border-white/5 py-2.5 px-3 rounded-[1.5rem] flex items-center justify-around shadow-[0_10px_50px_rgba(0,0,0,1)] z-[999999] pointer-events-auto select-none transition-all duration-300">
+      <nav className="fixed bottom-4 left-6 right-6 max-w-[360px] mx-auto bg-zinc-900 border border-white/10 py-2 px-3 rounded-2xl flex items-center justify-around z-50 pointer-events-auto select-none transition-all duration-300">
         <NavButton 
           active={activeTab === "mining"} 
           onClick={() => setActiveTab("mining")} 

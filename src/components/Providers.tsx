@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from 'react';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
 
@@ -9,7 +11,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setManifestUrl(`${window.location.origin}/tonconnect-manifest.json`);
   }, []);
 
-  if (!manifestUrl) return <>{children}</>;
+  if (!manifestUrl) return null; // Ensure we don't render children before the provider is set
 
   return (
     <TonConnectUIProvider manifestUrl={manifestUrl}>

@@ -30,11 +30,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${outfit.variable} antialiased selection:bg-yellow-500 selection:text-black`}>
+      <head>
         <Script 
           src="https://telegram.org/js/telegram-web-app.js" 
           strategy="beforeInteractive" 
         />
+      </head>
+      <body className={`${outfit.variable} antialiased selection:bg-yellow-500 selection:text-black`}>
          <Providers>
           {children}
         </Providers>

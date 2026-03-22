@@ -104,34 +104,68 @@ export default function Home() {
     setIsClaiming(true);
     
     // Calculate claimable amount base on time
-    const minedAmount = calculateClaimable(); 
-    if (minedAmount < 0.01) {
-      setIsClaiming(false);
-      return;
+    const amountToClaim = Math.floor(pendingLoon);
+    const originalPending = pendingLoon;
+    
+    // 1. Spawning multiple particles for visual impact
+    for (let i = 0; i < 12; i++) {
+      setTimeout(() => {
+        const id = Date.now() + i;
+        setParticles(prev => [...prev, { id, x: 160 + Math.random() * 80, y: 500 + Math.random() * 50 }]);
+        setTimeout(() => setParticles(prev => prev.filter(p => p.id !== id)), 800);
+      }, i * 40);
     }
+
+    // 2. Visual "Reverse" Countdown
+    let startTime = Date.now();
+    const duration = 600; // 0.6 seconds
     
-    const newTotal = coins + Math.floor(minedAmount);
-    const newTotalMined = totalMined + Math.floor(minedAmount);
+    const animate = () => {
+      const now = Date.now();
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Gradually decrease pending, gradually increase displayed coins
+      setPendingLoon(originalPending * (1 - progress));
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        completeClaim(amountToClaim);
+      }
+    };
     
+    requestAnimationFrame(animate);
+  };
+
+  const completeClaim = async (amount: number) => {
     try {
+      const now = new Date().toISOString();
+      const newTotal = coins + amount;
+      const newTotalMined = totalMined + amount;
+
       await supabase
         .from('users')
         .update({ 
           coins: newTotal, 
-          total_mined: newTotalMined,
-          last_claim: new Date().toISOString() 
+          last_claim: now,
+          total_mined: newTotalMined
         })
         .eq('id', userId);
-        
+
       setCoins(newTotal);
       setTotalMined(newTotalMined);
-      setClaimProgress(0);
-      const now = Date.now();
-      setLastClaim(now);
-      lastClaimRef.current = now;
+      setPendingLoon(0);
+      const nowTs = Date.now();
+      setLastClaim(nowTs);
+      lastClaimRef.current = nowTs;
+      setIsClaiming(false);
+      
+      if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+        (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+      }
     } catch (e) {
       console.error("Claim error:", e);
-    } finally {
       setIsClaiming(false);
     }
   };
@@ -512,10 +546,10 @@ export default function Home() {
 
         <button 
           onClick={handleClaim}
-          disabled={pendingLoon < 0.01}
-          className="btn-primary w-full py-3.5 text-base tracking-wide glow-green hover:brightness-110 active:scale-95 transition-all"
+          disabled={pendingLoon < 1}
+          className="btn-primary w-full py-4 text-base tracking-wide glow-green hover:brightness-110 active:scale-95 transition-all"
         >
-          {isClaiming ? 'Claiming...' : `Claim ${Math.floor(pendingLoon)} $LOON`}
+          Claim {Math.floor(pendingLoon)} $LOON
         </button>
       </div>
 
@@ -938,7 +972,7 @@ export default function Home() {
 
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-4 left-6 right-6 max-w-[360px] mx-auto bg-zinc-900 border border-white/10 py-2 px-3 rounded-2xl flex items-center justify-around z-50 pointer-events-auto select-none transition-all duration-300">
+      <nav className="fixed bottom-12 left-6 right-6 max-w-[360px] mx-auto bg-zinc-900 border border-white/10 py-2.5 px-3 rounded-2xl flex items-center justify-around z-50 pointer-events-auto select-none transition-all duration-300">
         <NavButton 
           active={activeTab === "mining"} 
           onClick={() => setActiveTab("mining")} 

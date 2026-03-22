@@ -4,7 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTonAddress, useTonConnectUI } from '@tonconnect/ui-react';
 
-type Tab = "mining" | "tasks" | "frens" | "wallet" | "upgrades" | "leaderboard" | "history";
+type Tab = "mining" | "tasks" | "frens" | "wallet" | "upgrades" | "leaderboard" | "history" | "settings";
 
 interface CoinParticle {
   id: number;
@@ -32,6 +32,8 @@ export default function Home() {
   const [showWithdrawInfo, setShowWithdrawInfo] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [referralCount, setReferralCount] = useState(0);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [pendingLoon, setPendingLoon] = useState(0);
@@ -104,6 +106,8 @@ export default function Home() {
       console.error("Tx recording error:", e);
     }
   };
+
+
   const syncCoins = async (newAmount: number) => {
     if (!userId) return;
     try {
@@ -121,8 +125,16 @@ export default function Home() {
     if (activeTab === 'history') fetchHistory();
   }, [activeTab]);
 
+  // Sync coins periodically or on specific actions
+  useEffect(() => {
+    // init
+  }, [userId]);
+
   const handleTap = (e: React.PointerEvent | React.MouseEvent) => {
     if (energy <= 0) return; // Cannot mine if out of energy
+    if (hapticsEnabled && typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.HapticFeedback) {
+      (window as any).Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+    }
 
     e.preventDefault();
     e.stopPropagation();
@@ -1179,8 +1191,143 @@ export default function Home() {
          <p className="px-4 text-[9px] text-zinc-600 font-medium leading-relaxed italic text-center">Note: It Should Also Be Mentioned That Users Must Complete Tasks Correctly. Each User Will Be Manually Reviewed Before The Airdrop Distribution. Cheaters Will Not Be Rewarded.</p>
       </div>
     </div>
-  );
+    );
   };
+  
+  const renderSettings = () => (
+    <div className="page-container animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="pt-6 px-4">
+        <h2 className="text-2xl font-black mb-1 italic tracking-tight uppercase">Settings</h2>
+        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-none">Configure your experience</p>
+      </div>
+
+      <div className="px-4 mt-8 space-y-4 pb-32">
+         {/* Preferences Section */}
+         <div className="glass-card bg-zinc-900/40 border-white/5 !rounded-3xl p-6">
+            <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-6">General Preferences</h3>
+            <div className="flex items-center justify-between">
+               <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-zinc-800 rounded-2xl flex items-center justify-center text-xl">📳</div>
+                  <div>
+                    <p className="text-sm font-black text-white uppercase select-none">Haptic Feedback</p>
+                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">Physical response on interaction</p>
+                  </div>
+               </div>
+               <button 
+                onClick={() => setHapticsEnabled(!hapticsEnabled)}
+                className={`w-12 h-7 rounded-full transition-all flex items-center px-1 ${hapticsEnabled ? 'bg-[#A3FF12]' : 'bg-zinc-800'}`}
+               >
+                  <div className={`w-5 h-5 rounded-full bg-black shadow-lg transition-all transform ${hapticsEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+               </button>
+            </div>
+         </div>
+
+         {/* Project Info Section */}
+         <div className="glass-card bg-zinc-900/40 border-white/5 !rounded-3xl p-1 overflow-hidden">
+            <button 
+              onClick={() => setShowDetailsModal(true)}
+              className="w-full h-full p-5 flex items-center justify-between active:bg-white/5 transition-all text-left"
+            >
+               <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-zinc-800 rounded-2xl flex items-center justify-center text-xl">💎</div>
+                  <div>
+                    <p className="text-sm font-black text-white uppercase select-none">About HedHog</p>
+                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">Tokenomics & Project Roadmap</p>
+                  </div>
+               </div>
+               <span className="text-zinc-600">→</span>
+            </button>
+            <div className="h-[1px] bg-white/5 mx-6"></div>
+            <a 
+              href="https://t.me/hedgehog_ai" 
+              target="_blank"
+              onClick={(e) => {
+                if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+                  e.preventDefault();
+                  (window as any).Telegram.WebApp.openTelegramLink("https://t.me/hedgehog_ai");
+                }
+              }}
+              className="w-full block p-5 flex items-center justify-between active:bg-white/5 transition-all text-left"
+            >
+               <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-zinc-800 rounded-2xl flex items-center justify-center text-xl">📣</div>
+                  <div>
+                    <p className="text-sm font-black text-white uppercase select-none">Join Channel</p>
+                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">Daily updates & announcements</p>
+                  </div>
+               </div>
+               <span className="text-zinc-600">→</span>
+            </a>
+         </div>
+
+         {/* Logout/Reset Row (Informational) */}
+         <p className="text-[10px] text-zinc-700 font-black text-center pt-8 uppercase tracking-[0.3em]">Version 1.2.4-Gold</p>
+      </div>
+
+      {/* Details Modal */}
+      {showDetailsModal && (
+        <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-black/80 backdrop-blur-xl animate-in fade-in duration-500">
+           <div className="w-full bg-zinc-950 border-t border-white/10 rounded-t-[3rem] p-8 animate-in slide-in-from-bottom-full duration-500 shadow-2xl overflow-y-auto max-h-[85vh]">
+              <div className="w-12 h-1.5 bg-zinc-800 rounded-full mx-auto mb-8"></div>
+              
+              <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-2">Project Details</h3>
+              <p className="text-[10px] text-[#A3FF12] font-black uppercase tracking-[0.3em] mb-8">Official Documentation Preview</p>
+
+              <div className="space-y-8">
+                 <div>
+                    <h4 className="text-lg font-black text-white uppercase mb-3 px-1 border-l-2 border-[#A3FF12] pl-3">Tokenomics</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                       <div className="bg-zinc-900/50 p-4 rounded-3xl border border-white/5">
+                          <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total Supply</p>
+                          <p className="text-lg font-black text-white">10.0B $LOON</p>
+                       </div>
+                       <div className="bg-zinc-900/50 p-4 rounded-3xl border border-white/5">
+                          <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">Airdrop Pool</p>
+                          <p className="text-lg font-black text-white">75% (7.5B)</p>
+                       </div>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 mt-4 leading-relaxed font-bold uppercase tracking-wider px-2">The Airdrop distribution is scheduled for late 2024. Active miners, task completers, and top referrers will receive the largest share based on their $LOON holdings.</p>
+                 </div>
+
+                 <div>
+                    <h4 className="text-lg font-black text-white uppercase mb-3 px-1 border-l-2 border-blue-500 pl-3">Roadmap</h4>
+                    <div className="space-y-3">
+                       <div className="flex gap-4 items-start bg-zinc-900/30 p-4 rounded-3xl border border-white/5 opacity-50">
+                          <div className="text-xl">✅</div>
+                          <div>
+                             <p className="text-sm font-black text-white uppercase">Phase 1: Launch</p>
+                             <p className="text-[9px] text-zinc-500 font-bold uppercase">Bot Launch, Mining, Basic Tasks</p>
+                          </div>
+                       </div>
+                       <div className="flex gap-4 items-start bg-zinc-900/30 p-4 rounded-3xl border border-white/10 glow-green">
+                          <div className="text-xl">🛠️</div>
+                          <div>
+                             <p className="text-sm font-black text-white uppercase italic">Phase 2: Growth (CURRENT)</p>
+                             <p className="text-[9px] text-zinc-400 font-bold uppercase">Exchanges, Leaderboards, Daily Combo</p>
+                          </div>
+                       </div>
+                       <div className="flex gap-4 items-start bg-zinc-900/10 p-4 rounded-3xl border border-dashed border-white/10 opacity-30">
+                          <div className="text-xl">🚀</div>
+                          <div>
+                             <p className="text-sm font-black text-white uppercase">Phase 3: TGE</p>
+                             <p className="text-[9px] text-zinc-500 font-bold uppercase">Token Listing, Liquidity, Staking</p>
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+              </div>
+
+              <button 
+                onClick={() => setShowDetailsModal(false)}
+                className="w-full py-5 rounded-[2rem] bg-white text-black text-xs font-black uppercase tracking-widest mt-10 active:scale-95 transition-all shadow-xl"
+              >
+                Close Details
+              </button>
+           </div>
+        </div>
+      )}
+    </div>
+  );
 
   const renderHistory = () => (
     <div className="page-container animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1256,6 +1403,7 @@ export default function Home() {
         {activeTab === "frens" && renderFrens()}
         {activeTab === "wallet" && renderWallet()}
         {activeTab === "history" && renderHistory()}
+        {activeTab === "settings" && renderSettings()}
         {activeTab === "leaderboard" && renderLeaderboard()}
       </main>
 
@@ -1291,6 +1439,12 @@ export default function Home() {
           onClick={() => setActiveTab("wallet")}
           icon="👛"
           label="Wallet"
+        />
+        <NavButton
+          active={activeTab === "settings"}
+          onClick={() => setActiveTab("settings")}
+          icon="⚙️"
+          label="Options"
         />
       </nav>
     </div>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import Script from "next/script";
-import { TonConnectUIProvider } from '@tonconnect/ui-react';
+import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -35,9 +35,9 @@ export default function RootLayout({
           src="https://telegram.org/js/telegram-web-app.js" 
           strategy="beforeInteractive" 
         />
-         <TonConnectUIProvider manifestUrl="https://hedhog-airdrop.vercel.app/tonconnect-manifest.json">
+         <Providers>
           {children}
-        </TonConnectUIProvider>
+        </Providers>
       </body>
     </html>
   );

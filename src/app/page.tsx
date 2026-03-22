@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { useTonAddress, useTonConnectUI } from '@tonconnect/ui-react';
 
 type Tab = "mining" | "tasks" | "frens" | "wallet" | "upgrades" | "leaderboard";
 
@@ -24,6 +25,10 @@ export default function Home() {
   const [lastClaim, setLastClaim] = useState<number>(0);
   const [streak, setStreak] = useState(0);
   const [lastDailyClaim, setLastDailyClaim] = useState<string | null>(null);
+  const [userWallet, setUserWallet] = useState<any>(null);
+  const [isLinking, setIsLinking] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<string | null>(null);
+  const [linkValue, setLinkValue] = useState("");
   const [referralCount, setReferralCount] = useState(0);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [pendingLoon, setPendingLoon] = useState(0);
@@ -34,6 +39,30 @@ export default function Home() {
    const [leaderboardUsers, setLeaderboardUsers] = useState<any[]>([]);
    const [lbType, setLbType] = useState<"coin" | "referral">("coin");
    const [userRank, setUserRank] = useState<number | null>(null);
+  
+  const tonAddress = useTonAddress();
+  const [tonConnectUI] = useTonConnectUI();
+  
+  // Auto-Link TON Wallet when detected
+  useEffect(() => {
+    if (tonAddress && userId && userWallet && tonAddress !== userWallet.telegram_wallet_address) {
+      const syncTonWallet = async () => {
+        const { error } = await supabase
+          .from('users')
+          .update({ telegram_wallet_address: tonAddress })
+          .eq('id', userId);
+        
+        if (!error) {
+          setUserWallet((prev: any) => ({ ...prev, telegram_wallet_address: tonAddress }));
+          if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+            (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            (window as any).Telegram.WebApp.showAlert("💎 TON Wallet auto-linked successfully!");
+          }
+        }
+      };
+      syncTonWallet();
+    }
+  }, [tonAddress, userId, userWallet]);
   
   // Refs for interval to avoid stale closures
   const lastClaimRef = useRef<number>(0);
@@ -292,6 +321,45 @@ export default function Home() {
     }
   };
 
+
+
+  const handleLinkConfirm = async () => {
+    if (!userId || !linkTarget || !linkValue) return;
+    
+    setIsLinking(true);
+    try {
+      const fieldMap: Record<string, string> = {
+        'Binance': 'binance_id',
+        'Bybit': 'bybit_id',
+        'OKX': 'okx_id',
+        'Trust Wallet': 'trust_wallet_address',
+        'Telegram Wallet': 'telegram_wallet_address'
+      };
+      
+      const field = fieldMap[linkTarget];
+      if (!field) return;
+
+      const { error } = await supabase
+        .from('users')
+        .update({ [field]: linkValue })
+        .eq('id', userId);
+
+      if (!error) {
+        setUserWallet((prev: any) => ({ ...prev, [field]: linkValue }));
+        setIsLinking(false);
+        setLinkTarget(null);
+        setLinkValue("");
+        if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+           (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+           (window as any).Telegram.WebApp.showAlert(`✅ Successfully linked ${linkTarget}!`);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setIsLinking(false);
+    }
+  };
+
   const handleReferralCopy = () => {
     const link = `https://t.me/Hedhog_airdrop_bot?start=${userId}`;
     navigator.clipboard.writeText(link);
@@ -338,6 +406,13 @@ export default function Home() {
           setCoins(data.coins || 0);
           setStreak(data.streak || 0);
           setLastDailyClaim(data.last_daily_claim);
+          setUserWallet({
+            binance_id: data.binance_id,
+            bybit_id: data.bybit_id,
+            okx_id: data.okx_id,
+            trust_wallet_address: data.trust_wallet_address,
+            telegram_wallet_address: data.telegram_wallet_address
+          });
           
           const claimTime = data.last_claim ? new Date(data.last_claim).getTime() : Date.now();
           setLastClaim(claimTime);
@@ -903,49 +978,88 @@ export default function Home() {
          </div>
 
          {/* TON Connection - Standardized */}
-         <div className="glass-card flex justify-between items-center bg-zinc-900/40 !rounded-3xl border-white/5 py-4">
-            <div className="flex items-center gap-3">
-               <div className="w-10 h-10 bg-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                 <span className="text-xl">🐬</span>
-               </div>
-               <div>
-                 <h4 className="text-sm font-black text-white uppercase select-none">Telegram Wallet</h4>
-                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">Official Airdrop Network</p>
-               </div>
-            </div>
-            <button 
-             onPointerDown={(e) => { e.stopPropagation(); }}
-             className="bg-blue-500 text-white text-[9px] font-black uppercase px-4 py-2.5 rounded-xl glow-blue active:scale-95 transition-transform"
-            >
-              Connect
-            </button>
-         </div>
-
-         {/* Other Exchanges - Matching Size */}
-         {[
-           { name: "Binance", icon: "🟡", color: "bg-yellow-400/10", border: "border-yellow-400/20", text: "Exchange Listing" },
-           { name: "Bybit", icon: "🟠", color: "bg-orange-500/10", border: "border-orange-500/20", text: "Exchange Listing" },
-           { name: "OKX", icon: "⚫", color: "bg-white/5", border: "border-white/10", text: "Exchange Listing" },
-           { name: "Trust Wallet", icon: "🔵", color: "bg-blue-600/10", border: "border-blue-600/20", text: "Self-Custody" }
-         ].map((ex) => (
-           <div key={ex.name} className="glass-card flex justify-between items-center bg-zinc-900/40 !rounded-3xl border-white/5 py-4">
+          <div className="glass-card flex justify-between items-center bg-zinc-900/40 !rounded-3xl border-white/5 py-4">
              <div className="flex items-center gap-3">
-               <div className={`w-10 h-10 ${ex.color} rounded-2xl flex items-center justify-center border ${ex.border}`}>
-                 <span className="text-xl">{ex.icon}</span>
-               </div>
-               <div>
-                 <p className="text-sm font-black text-white uppercase select-none">{ex.name}</p>
-                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">{ex.text}</p>
-               </div>
+                <div className="w-10 h-10 bg-zinc-800 rounded-2xl flex items-center justify-center border border-white/5 overflow-hidden">
+                  <img src="/telegram-wallet.png" alt="Telegram Wallet" className="w-8 h-8 object-contain" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white uppercase select-none">Telegram Wallet</h4>
+                  <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">Official Airdrop Network</p>
+                </div>
              </div>
              <button 
-               onPointerDown={(e) => { e.stopPropagation(); }}
-               className="bg-zinc-800 text-zinc-300 text-[10px] font-black uppercase px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
+              onPointerDown={(e) => { 
+                e.stopPropagation(); 
+                if (!tonAddress) {
+                  tonConnectUI.openModal();
+                }
+              }}
+              className={`text-[9px] font-black uppercase px-4 py-2.5 rounded-xl transition-all ${tonAddress || userWallet?.telegram_wallet_address ? 'bg-zinc-800 text-zinc-400' : 'bg-blue-500 text-white glow-blue active:scale-95'}`}
              >
-               Link
+               {tonAddress || userWallet?.telegram_wallet_address ? "Linked" : "Connect"}
              </button>
-           </div>
-         ))}
+          </div>
+
+          {/* Other Exchanges - Matching Size */}
+          {[
+            { name: "Binance", img: "/binance-exchange.png", color: "bg-yellow-400/5", border: "border-yellow-400/10", text: "Exchange Listing", field: 'binance_id' },
+            { name: "Bybit", img: "/bybit-exchange.png", color: "bg-orange-500/5", border: "border-orange-500/10", text: "Exchange Listing", field: 'bybit_id' },
+            { name: "OKX", img: "/okx-exchnage.png", color: "bg-white/5", border: "border-white/5", text: "Exchange Listing", field: 'okx_id' },
+            { name: "Trust Wallet", img: "/trust-wallet.webp", color: "bg-blue-600/5", border: "border-blue-600/10", text: "Self-Custody", field: 'trust_wallet_address' }
+          ].map((ex) => (
+            <div key={ex.name} className="glass-card flex justify-between items-center bg-zinc-900/40 !rounded-3xl border-white/5 py-4 transition-all active:scale-[0.98]">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 ${ex.color} rounded-2xl flex items-center justify-center border ${ex.border} overflow-hidden`}>
+                  <img src={ex.img} alt={ex.name} className="w-8 h-8 object-contain" />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-white uppercase select-none">{ex.name}</p>
+                  <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-1">{ex.text}</p>
+                </div>
+              </div>
+              <button 
+                onPointerDown={(e) => { e.stopPropagation(); setLinkTarget(ex.name); setLinkValue(userWallet?.[ex.field] || ""); }}
+                className={`text-[10px] font-black uppercase px-4 py-2.5 rounded-xl transition-all ${userWallet?.[ex.field] ? 'bg-zinc-800 text-zinc-400' : 'bg-[#A3FF12] text-black active:scale-95'}`}
+              >
+                {userWallet?.[ex.field] ? "Linked" : "Link"}
+              </button>
+            </div>
+          ))}
+
+          {/* Modal Overlay */}
+          {linkTarget && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+               <div className="w-full max-w-[320px] glass-card border-white/10 !p-6 !rounded-[2.5rem] bg-zinc-950 shadow-2xl">
+                  <h3 className="text-xl font-black text-white uppercase mb-1">{linkTarget}</h3>
+                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-6">Enter Your {linkTarget.includes('Wallet') ? 'Address' : 'User ID'}</p>
+                  
+                  <input 
+                    autoFocus
+                    value={linkValue}
+                    onChange={(e) => setLinkValue(e.target.value)}
+                    placeholder={linkTarget.includes('Wallet') ? 'T-Address... or 0x...' : 'Your UID...'}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm text-white focus:border-[#A3FF12]/50 outline-none mb-6 transition-all"
+                  />
+
+                  <div className="flex gap-3">
+                     <button 
+                       onClick={() => { setLinkTarget(null); setLinkValue(""); }}
+                       className="flex-1 py-4 rounded-2xl bg-zinc-800 text-zinc-400 text-xs font-black uppercase tracking-widest"
+                     >
+                       Cancel
+                     </button>
+                     <button 
+                       onClick={handleLinkConfirm}
+                       disabled={isLinking || !linkValue}
+                       className="flex-2 py-4 rounded-2xl bg-[#A3FF12] text-black text-xs font-black uppercase tracking-widest glow-green disabled:opacity-50"
+                     >
+                       {isLinking ? 'Linking...' : 'Confirm'}
+                     </button>
+                  </div>
+               </div>
+            </div>
+          )}
          
          <p className="px-4 text-[9px] text-zinc-600 font-medium leading-relaxed italic text-center">Note: It Should Also Be Mentioned That Users Must Complete Tasks Correctly. Each User Will Be Manually Reviewed Before The Airdrop Distribution. Cheaters Will Not Be Rewarded.</p>
       </div>

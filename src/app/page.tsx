@@ -30,6 +30,8 @@ export default function Home() {
   const [linkTarget, setLinkTarget] = useState<string | null>(null);
   const [linkValue, setLinkValue] = useState("");
   const [showWithdrawInfo, setShowWithdrawInfo] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [referralCount, setReferralCount] = useState(0);
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [pendingLoon, setPendingLoon] = useState(0);
@@ -70,7 +72,38 @@ export default function Home() {
   const miningRateRef = useRef<number>(10);
   const energyRef = useRef<number>(1000);
 
-  // Sync coins periodically or on specific actions
+  const fetchHistory = async () => {
+    if (!userId) return;
+    setIsFetchingHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      
+      if (data) setHistory(data);
+    } catch (e) { console.error(e); }
+    finally { setIsFetchingHistory(false); }
+  };
+
+  const recordTransaction = async (type: string, title: string, amount: number, is_income: boolean = true) => {
+    if (!userId) return;
+    try {
+      await supabase.from('transactions').insert({
+        user_id: userId,
+        type,
+        title,
+        amount,
+        is_income
+      });
+      // Refresh local history if tab is open or needed
+      if (activeTab === 'history') fetchHistory();
+    } catch (e) {
+      console.error("Tx recording error:", e);
+    }
+  };
   const syncCoins = async (newAmount: number) => {
     if (!userId) return;
     try {
@@ -82,6 +115,11 @@ export default function Home() {
       console.error("Sync error:", e);
     }
   };
+
+  // Fetch history on tab switch
+  useEffect(() => {
+    if (activeTab === 'history') fetchHistory();
+  }, [activeTab]);
 
   const handleTap = (e: React.PointerEvent | React.MouseEvent) => {
     if (energy <= 0) return; // Cannot mine if out of energy
@@ -191,6 +229,9 @@ export default function Home() {
       lastClaimRef.current = nowTs;
       setIsClaiming(false);
 
+      // Record transaction
+      recordTransaction('mining', 'Claim Mining Loot', amount, true);
+
       if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
         (window as any).Telegram.WebApp.HapticFeedback.notificationOccurred('success');
       }
@@ -218,6 +259,9 @@ export default function Home() {
       setCoins(newTotal);
       setMiningRate(newRate);
       miningRateRef.current = newRate;
+
+      // Record transaction
+      recordTransaction('upgrade', `Boost: ${id}`, cost, false);
 
       // Visual & Haptic Feedback
       if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
@@ -262,6 +306,10 @@ export default function Home() {
       setCoins(newTotal);
       setStreak(newStreak);
       setLastDailyClaim(today);
+
+      // Record transaction
+      recordTransaction('daily_bonus', `Daily Bonus Day ${newStreak}`, reward, true);
+
       console.log(`✅ Daily reward Day ${newStreak} saved to Supabase.`);
       alert(`🎁 Day ${newStreak} claimed: +${reward.toLocaleString()} $LOON!`);
     } catch (e) {
@@ -284,6 +332,10 @@ export default function Home() {
 
       setCoins(newTotal);
       setCompletedTasks(prev => [...prev, taskId]);
+
+      // Record transaction
+      recordTransaction('task', `Task: ${taskId}`, reward, true);
+
       alert(`🎉 Task Complete: +${reward.toLocaleString()} $LOON!`);
     } catch (e) { console.error(e); }
   };
@@ -1141,36 +1193,48 @@ export default function Home() {
             ←
           </button>
           <h2 className="text-xl font-black italic tracking-tighter uppercase text-white">Reward History</h2>
-          <div className="w-10"></div>
+           <button 
+            onClick={() => fetchHistory()}
+            className="w-10 h-10 bg-zinc-900 border border-white/5 rounded-2xl flex items-center justify-center text-zinc-400 active:scale-95 transition-all"
+          >
+            ↻
+          </button>
         </div>
 
-        <div className="space-y-4 px-2">
-           {[
-             { title: "Mining Session", amount: "+842", time: "2 hours ago", type: "income" },
-             { title: "Daily Login Bonus", amount: "+1,000", time: "Today, 10:45 AM", type: "income" },
-             { title: "Referral Reward", amount: "+5,000", time: "Yesterday", type: "income" },
-             { title: "Upgrade Purchase", amount: "-15,000", time: "Mar 20, 2024", type: "expense" }
-           ].map((item, i) => (
-             <div key={i} className="glass-card flex justify-between items-center bg-zinc-900/40 !rounded-3xl border-white/5 py-5 px-6 group active:bg-zinc-900/60 transition-all">
-                <div className="flex gap-4 items-center">
-                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${item.type === 'income' ? 'bg-[#A3FF12]/5 text-[#A3FF12] border border-[#A3FF12]/10' : 'bg-red-500/5 text-red-400 border border-red-500/10'}`}>
-                      {item.type === 'income' ? '↙' : '↗'}
-                   </div>
-                   <div>
-                      <p className="text-sm font-black text-white uppercase select-none">{item.title}</p>
-                      <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{item.time}</p>
-                   </div>
-                </div>
-                <div className="text-right">
-                   <p className={`text-sm font-black ${item.type === 'income' ? 'text-[#A3FF12]' : 'text-zinc-400'}`}>
-                     {item.amount}
-                   </p>
-                   <p className="text-[8px] text-zinc-600 font-black uppercase">$LOON</p>
-                </div>
+        <div className="space-y-4 px-2 pb-32">
+           {history.length === 0 ? (
+             <div className="text-center pt-20">
+                <div className="w-16 h-16 bg-zinc-900 mx-auto rounded-full flex items-center justify-center text-2xl mb-4 border border-white/5 grayscale opacity-50">📜</div>
+                <p className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">No transactions recorded yet</p>
              </div>
-           ))}
+           ) : (
+             history.map((item, i) => (
+               <div key={i} className="glass-card flex justify-between items-center bg-zinc-900/40 !rounded-3xl border-white/5 py-5 px-6 group active:bg-zinc-900/60 transition-all">
+                  <div className="flex gap-4 items-center">
+                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${item.is_income ? 'bg-[#A3FF12]/5 text-[#A3FF12] border border-[#A3FF12]/10' : 'bg-red-500/5 text-red-400 border border-red-500/10'}`}>
+                        {item.type === 'mining' ? '⛏️' : 
+                         item.type === 'daily_bonus' ? '🎁' : 
+                         item.type === 'task' ? '📋' : 
+                         item.type === 'referral' ? '🤝' : '⚡'}
+                     </div>
+                     <div>
+                        <p className="text-sm font-black text-white uppercase select-none">{item.title}</p>
+                        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
+                          {new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                     </div>
+                  </div>
+                  <div className="text-right">
+                     <p className={`text-sm font-black ${item.is_income ? 'text-[#A3FF12]' : 'text-zinc-400'}`}>
+                       {item.is_income ? '+' : '-'}{item.amount.toLocaleString()}
+                     </p>
+                     <p className="text-[8px] text-zinc-600 font-black uppercase">$LOON</p>
+                  </div>
+               </div>
+             ))
+           )}
            
-           <p className="text-[10px] text-zinc-700 font-black text-center pt-8 uppercase tracking-[0.3em]">No more transactions</p>
+           {history.length > 0 && <p className="text-[10px] text-zinc-700 font-black text-center pt-8 uppercase tracking-[0.3em]">No more transactions</p>}
         </div>
       </div>
     </div>
